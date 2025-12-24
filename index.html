@@ -108,27 +108,11 @@
                     <select id="objectType">
                         <option value="sphere">Sphere</option>
                         <option value="cube">Cube</option>
-                        <option value="torus">Torus</option>
                     </select>
-                </div>
-                <div class="control-group checkbox-group">
-                    <input type="checkbox" id="autoRotate" checked>
-                    <label for="autoRotate">Auto Rotate</label>
                 </div>
                 <div class="control-group checkbox-group">
                     <input type="checkbox" id="shadowEnabled" checked>
                     <label for="shadowEnabled">Shadows</label>
-                </div>
-            </section>
-
-            <!-- Variable Display -->
-            <section class="control-section variables-section">
-                <h3>Vectors (hover on surface)</h3>
-                <div class="variable-list">
-                    <div class="variable-item"><span class="var-name">N</span> <span class="var-desc">Surface Normal</span></div>
-                    <div class="variable-item"><span class="var-name">L</span> <span class="var-desc">Light Direction</span></div>
-                    <div class="variable-item"><span class="var-name">V</span> <span class="var-desc">View Direction</span></div>
-                    <div class="variable-item"><span class="var-name">H</span> <span class="var-desc">Half Vector</span></div>
                 </div>
             </section>
         </aside>
@@ -137,7 +121,33 @@
         <main class="canvas-area">
             <div class="canvas-container">
                 <canvas id="glCanvas"></canvas>
-                <!-- Tooltip for hover info -->
+                
+                <!-- Vector Legend (Top Right) -->
+                <div class="vector-legend">
+                    <h3>VECTORS (HOVER ON SURFACE)</h3>
+                    <div class="legend-item">
+                        <div class="color-box" style="background: rgb(0, 255, 0);"></div>
+                        <span class="vector-label">N</span>
+                        <span class="vector-desc">Surface Normal</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="color-box" style="background: rgb(255, 255, 0);"></div>
+                        <span class="vector-label">L</span>
+                        <span class="vector-desc">Light Direction</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="color-box" style="background: rgb(0, 128, 255);"></div>
+                        <span class="vector-label">V</span>
+                        <span class="vector-desc">View Direction</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="color-box" style="background: rgb(255, 0, 255);"></div>
+                        <span class="vector-label">H</span>
+                        <span class="vector-desc">Half Vector</span>
+                    </div>
+                </div>
+                
+                <!-- Tooltip for hover info (HIDDEN) -->
                 <div id="vectorTooltip" class="vector-tooltip" style="display: none;">
                     <div class="tooltip-row"><span class="vec-label">N:</span> <span id="vecN">-</span></div>
                     <div class="tooltip-row"><span class="vec-label">L:</span> <span id="vecL">-</span></div>
@@ -146,11 +156,6 @@
                     <div class="tooltip-row"><span class="vec-label">N·L:</span> <span id="vecNdotL">-</span></div>
                     <div class="tooltip-row"><span class="vec-label">N·H:</span> <span id="vecNdotH">-</span></div>
                 </div>
-            </div>
-            
-            <!-- Light Preview (Top Right) -->
-            <div class="light-preview">
-                <canvas id="previewCanvas"></canvas>
             </div>
         </main>
     </div>

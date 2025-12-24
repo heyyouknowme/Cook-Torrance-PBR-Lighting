@@ -1,273 +1,260 @@
 /**
- * ============================================
- * 3D Geometry Generation Module
- * ============================================
+ * Geometry Generation Module
  * 
- * This module generates vertex data for 3D objects:
- * - Sphere (UV sphere with configurable segments)
- * - Cube (with proper normals for each face)
- * - Torus (donut shape)
- * 
- * Each object includes:
- * - Positions: vertex coordinates (x, y, z)
- * - Normals: surface direction vectors (for lighting calculations)
- * - Indices: how vertices connect to form triangles
+ * Creates 3D geometry (vertices, normals, UVs, indices) for common shapes.
+ * Vertex data layout: [x, y, z, nx, ny, nz, u, v] per vertex
+ * - Position (x, y, z): 3D coordinates in model space
+ * - Normal (nx, ny, nz): Surface normal for lighting calculations
+ * - UV (u, v): Texture coordinates (0-1 range)
  */
 
+// Floor height constant - shadows will be projected onto this plane
+export const FLOOR_Y = -0.75;
+
 /**
- * Generate a UV sphere
- * 
- * A UV sphere is created by dividing latitude and longitude lines.
- * Good for demonstrating lighting because of smooth surface normals.
- * 
- * @param {number} radius - Radius of the sphere
- * @param {number} latSegments - Number of horizontal divisions
- * @param {number} lonSegments - Number of vertical divisions
- * @returns {Object} - Object containing positions, normals, and indices arrays
+ * Create a cube geometry
+ * The cube is centered at origin with size 1.2 units
+ * Each face has its own vertices for correct per-face normals
+ * @returns {{data: Float32Array, indices: Uint16Array}} Vertex data and indices
  */
-export function createSphere(radius = 1, latSegments = 32, lonSegments = 32) {
+export function createCube() {
+    const halfSize = 0.6; // Cube extends from -0.6 to +0.6
+    const positions = [
+        // Front face (z = +0.6)
+        -halfSize, -halfSize,  halfSize,  0, 0, 1,  0, 0, // Bottom-left
+         halfSize, -halfSize,  halfSize,  0, 0, 1,  1, 0, // Bottom-right
+         halfSize,  halfSize,  halfSize,  0, 0, 1,  1, 1, // Top-right
+        -halfSize,  halfSize,  halfSize,  0, 0, 1,  0, 1, // Top-left
+        
+        // Back face (z = -0.6)
+        -halfSize, -halfSize, -halfSize,  0, 0, -1,  1, 0,
+        -halfSize,  halfSize, -halfSize,  0, 0, -1,  1, 1,
+         halfSize,  halfSize, -halfSize,  0, 0, -1,  0, 1,
+         halfSize, -halfSize, -halfSize,  0, 0, -1,  0, 0,
+        
+        // Left face (x = -0.6)
+        -halfSize, -halfSize, -halfSize, -1, 0, 0,  0, 0,
+        -halfSize, -halfSize,  halfSize, -1, 0, 0,  1, 0,
+        -halfSize,  halfSize,  halfSize, -1, 0, 0,  1, 1,
+        -halfSize,  halfSize, -halfSize, -1, 0, 0,  0, 1,
+        
+        // Right face (x = +0.6)
+         halfSize, -halfSize, -halfSize,  1, 0, 0,  1, 0,
+         halfSize,  halfSize, -halfSize,  1, 0, 0,  1, 1,
+         halfSize,  halfSize,  halfSize,  1, 0, 0,  0, 1,
+         halfSize, -halfSize,  halfSize,  1, 0, 0,  0, 0,
+        
+        // Top face (y = +0.6)
+        -halfSize,  halfSize,  halfSize,  0, 1, 0,  0, 0,
+         halfSize,  halfSize,  halfSize,  0, 1, 0,  1, 0,
+         halfSize,  halfSize, -halfSize,  0, 1, 0,  1, 1,
+        -halfSize,  halfSize, -halfSize,  0, 1, 0,  0, 1,
+        
+        // Bottom face (y = -0.6)
+        -halfSize, -halfSize,  halfSize,  0, -1, 0,  1, 0,
+        -halfSize, -halfSize, -halfSize,  0, -1, 0,  1, 1,
+         halfSize, -halfSize, -halfSize,  0, -1, 0,  0, 1,
+         halfSize, -halfSize,  halfSize,  0, -1, 0,  0, 0,
+    ];
+
+    // Two triangles per face (6 faces × 2 triangles = 12 triangles)
+    const indices = [
+        0, 1, 2,   0, 2, 3,     // Front
+        4, 5, 6,   4, 6, 7,     // Back
+        8, 9, 10,  8, 10, 11,   // Left
+        12, 13, 14, 12, 14, 15, // Right
+        16, 17, 18, 16, 18, 19, // Top
+        20, 21, 22, 20, 22, 23, // Bottom
+    ];
+
+    return {
+        data: new Float32Array(positions),
+        indices: new Uint16Array(indices)
+    };
+}
+
+/**
+ * Create a UV sphere geometry
+ * Generates a sphere by subdividing latitude and longitude lines
+ * @param {number} segments - Number of subdivisions (higher = smoother sphere)
+ * @returns {{data: Float32Array, indices: Uint16Array}} Vertex data and indices
+ */
+export function createSphere(segments = 32) {
     const positions = [];
-    const normals = [];
     const indices = [];
-    
-    // Generate vertices by iterating through latitude and longitude
-    for (let lat = 0; lat <= latSegments; lat++) {
-        // Theta goes from 0 to PI (top to bottom of sphere)
-        const theta = (lat * Math.PI) / latSegments;
+    const radius = 0.6;
+
+    // Generate vertices
+    // Iterate over latitude (y-axis) and longitude (around y-axis)
+    for (let latIndex = 0; latIndex <= segments; latIndex++) {
+        const v = latIndex / segments; // Vertical UV coordinate [0, 1]
+        const theta = v * Math.PI;     // Latitude angle [0, π]
+        
         const sinTheta = Math.sin(theta);
         const cosTheta = Math.cos(theta);
-        
-        for (let lon = 0; lon <= lonSegments; lon++) {
-            // Phi goes from 0 to 2*PI (around the sphere)
-            const phi = (lon * 2 * Math.PI) / lonSegments;
+
+        for (let lonIndex = 0; lonIndex <= segments; lonIndex++) {
+            const u = lonIndex / segments;    // Horizontal UV coordinate [0, 1]
+            const phi = u * Math.PI * 2;      // Longitude angle [0, 2π]
+            
             const sinPhi = Math.sin(phi);
             const cosPhi = Math.cos(phi);
-            
-            // Calculate vertex position using spherical coordinates
-            // x = r * sin(theta) * cos(phi)
-            // y = r * cos(theta)
-            // z = r * sin(theta) * sin(phi)
+
+            // Calculate position on unit sphere, then scale by radius
             const x = cosPhi * sinTheta;
             const y = cosTheta;
             const z = sinPhi * sinTheta;
-            
-            // For a sphere centered at origin, the normal equals the normalized position
-            // (pointing outward from the center)
-            normals.push(x, y, z);
-            positions.push(radius * x, radius * y, radius * z);
-        }
-    }
-    
-    // Generate indices to connect vertices into triangles
-    for (let lat = 0; lat < latSegments; lat++) {
-        for (let lon = 0; lon < lonSegments; lon++) {
-            // Calculate vertex indices for current quad
-            const first = lat * (lonSegments + 1) + lon;
-            const second = first + lonSegments + 1;
-            
-            // Create two triangles for each quad
-            // Triangle 1
-            indices.push(first, second, first + 1);
-            // Triangle 2
-            indices.push(second, second + 1, first + 1);
-        }
-    }
-    
-    return {
-        positions: new Float32Array(positions),
-        normals: new Float32Array(normals),
-        indices: new Uint16Array(indices)
-    };
-}
 
-/**
- * Generate a cube with proper face normals
- * 
- * Each face has its own set of vertices so that each face
- * can have correct normals for flat shading.
- * 
- * @param {number} size - Size of the cube (edge length)
- * @returns {Object} - Object containing positions, normals, and indices arrays
- */
-export function createCube(size = 1) {
-    const s = size / 2;  // Half-size for centering the cube at origin
-    
-    // Define vertices for each face separately
-    // This allows each face to have proper flat normals
-    const positions = new Float32Array([
-        // Front face (z = +s, normal = 0, 0, 1)
-        -s, -s,  s,   s, -s,  s,   s,  s,  s,  -s,  s,  s,
-        // Back face (z = -s, normal = 0, 0, -1)
-        -s, -s, -s,  -s,  s, -s,   s,  s, -s,   s, -s, -s,
-        // Top face (y = +s, normal = 0, 1, 0)
-        -s,  s, -s,  -s,  s,  s,   s,  s,  s,   s,  s, -s,
-        // Bottom face (y = -s, normal = 0, -1, 0)
-        -s, -s, -s,   s, -s, -s,   s, -s,  s,  -s, -s,  s,
-        // Right face (x = +s, normal = 1, 0, 0)
-         s, -s, -s,   s,  s, -s,   s,  s,  s,   s, -s,  s,
-        // Left face (x = -s, normal = -1, 0, 0)
-        -s, -s, -s,  -s, -s,  s,  -s,  s,  s,  -s,  s, -s
-    ]);
-    
-    // Define normals for each vertex (each face has 4 vertices with same normal)
-    const normals = new Float32Array([
-        // Front face - pointing towards viewer
-        0, 0, 1,   0, 0, 1,   0, 0, 1,   0, 0, 1,
-        // Back face - pointing away from viewer
-        0, 0, -1,  0, 0, -1,  0, 0, -1,  0, 0, -1,
-        // Top face - pointing up
-        0, 1, 0,   0, 1, 0,   0, 1, 0,   0, 1, 0,
-        // Bottom face - pointing down
-        0, -1, 0,  0, -1, 0,  0, -1, 0,  0, -1, 0,
-        // Right face - pointing right
-        1, 0, 0,   1, 0, 0,   1, 0, 0,   1, 0, 0,
-        // Left face - pointing left
-        -1, 0, 0,  -1, 0, 0,  -1, 0, 0,  -1, 0, 0
-    ]);
-    
-    // Define indices for triangles (two triangles per face)
-    const indices = new Uint16Array([
-        0,  1,  2,   0,  2,  3,    // Front
-        4,  5,  6,   4,  6,  7,    // Back
-        8,  9,  10,  8,  10, 11,   // Top
-        12, 13, 14,  12, 14, 15,   // Bottom
-        16, 17, 18,  16, 18, 19,   // Right
-        20, 21, 22,  20, 22, 23    // Left
-    ]);
-    
-    return { positions, normals, indices };
-}
-
-/**
- * Generate a torus (donut shape)
- * 
- * A torus is created by revolving a circle around an axis.
- * Parameters:
- * - outerRadius: distance from center to middle of tube
- * - innerRadius: radius of the tube itself
- * 
- * @param {number} outerRadius - Distance from center to tube center
- * @param {number} innerRadius - Radius of the tube
- * @param {number} radialSegments - Segments around the main ring
- * @param {number} tubularSegments - Segments around the tube
- * @returns {Object} - Object containing positions, normals, and indices arrays
- */
-export function createTorus(outerRadius = 0.7, innerRadius = 0.3, radialSegments = 32, tubularSegments = 24) {
-    const positions = [];
-    const normals = [];
-    const indices = [];
-    
-    // Generate vertices
-    for (let j = 0; j <= radialSegments; j++) {
-        // Angle around the main ring
-        const u = (j / radialSegments) * Math.PI * 2;
-        const cosU = Math.cos(u);
-        const sinU = Math.sin(u);
-        
-        for (let i = 0; i <= tubularSegments; i++) {
-            // Angle around the tube
-            const v = (i / tubularSegments) * Math.PI * 2;
-            const cosV = Math.cos(v);
-            const sinV = Math.sin(v);
-            
-            // Calculate position on torus surface
-            // The center of the tube is at (outerRadius * cosU, 0, outerRadius * sinU)
-            // We add the tube offset using innerRadius
-            const x = (outerRadius + innerRadius * cosV) * cosU;
-            const y = innerRadius * sinV;
-            const z = (outerRadius + innerRadius * cosV) * sinU;
-            
+            // Position
+            positions.push(x * radius, y * radius, z * radius);
+            // Normal (for sphere at origin, normal = normalized position)
             positions.push(x, y, z);
-            
-            // Calculate normal (points outward from tube center)
-            // Tube center at this point
-            const centerX = outerRadius * cosU;
-            const centerZ = outerRadius * sinU;
-            
-            // Normal is direction from tube center to surface point
-            const nx = (x - centerX);
-            const ny = y;
-            const nz = (z - centerZ);
-            
-            // Normalize the normal vector
-            const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
-            normals.push(nx / length, ny / length, nz / length);
+            // UV coordinates
+            positions.push(u, v);
         }
     }
-    
-    // Generate indices
-    for (let j = 0; j < radialSegments; j++) {
-        for (let i = 0; i < tubularSegments; i++) {
-            // Calculate vertex indices for current quad
-            const a = j * (tubularSegments + 1) + i;
-            const b = a + tubularSegments + 1;
-            const c = a + 1;
-            const d = b + 1;
-            
-            // Create two triangles for each quad
-            indices.push(a, b, c);
-            indices.push(b, d, c);
+
+    // Generate triangle indices
+    // Connect vertices in a grid pattern to form triangles
+    for (let lat = 0; lat < segments; lat++) {
+        for (let lon = 0; lon < segments; lon++) {
+            const current = lat * (segments + 1) + lon;
+            const next = current + segments + 1;
+
+            // Two triangles per quad
+            // Triangle 1: current, next, current+1
+            indices.push(current, next, current + 1);
+            // Triangle 2: next, next+1, current+1
+            indices.push(next, next + 1, current + 1);
         }
     }
-    
+
     return {
-        positions: new Float32Array(positions),
-        normals: new Float32Array(normals),
+        data: new Float32Array(positions),
         indices: new Uint16Array(indices)
     };
 }
 
 /**
- * Generate a flat plane (floor)
- * 
- * A horizontal plane useful for showing shadows.
- * 
- * @param {number} width - Width of the plane
- * @param {number} depth - Depth of the plane
- * @returns {Object} - Object containing positions, normals, and indices arrays
+ * Create a ground plane geometry
+ * A flat horizontal surface used as the floor for shadow projection
+ * @param {number} size - Half-width of the plane (total size = size × 2)
+ * @returns {{data: Float32Array, indices: Uint16Array}} Vertex data and indices
  */
-export function createPlane(width = 4, depth = 4) {
-    const hw = width / 2;
-    const hd = depth / 2;
-    
-    const positions = new Float32Array([
-        -hw, 0, -hd,
-         hw, 0, -hd,
-         hw, 0,  hd,
-        -hw, 0,  hd
-    ]);
-    
-    const normals = new Float32Array([
-        0, 1, 0,
-        0, 1, 0,
-        0, 1, 0,
-        0, 1, 0
-    ]);
-    
-    const indices = new Uint16Array([
-        0, 2, 1,
-        0, 3, 2
-    ]);
-    
-    return { positions, normals, indices };
+export function createPlane(size = 5) {
+    const positions = [
+        // Four corners of the plane, all at FLOOR_Y height
+        // Normal points upward (0, 1, 0)
+        -size, FLOOR_Y, -size,  0, 1, 0,  0, 0, // Bottom-left
+         size, FLOOR_Y, -size,  0, 1, 0,  1, 0, // Bottom-right
+         size, FLOOR_Y,  size,  0, 1, 0,  1, 1, // Top-right
+        -size, FLOOR_Y,  size,  0, 1, 0,  0, 1, // Top-left
+    ];
+
+    // Two triangles forming a quad
+    const indices = [0, 1, 2, 0, 2, 3];
+
+    return {
+        data: new Float32Array(positions),
+        indices: new Uint16Array(indices)
+    };
 }
 
 /**
- * Calculate vertex count from geometry data
- * 
- * @param {Object} geometry - Geometry object with positions array
- * @returns {number} - Number of vertices
+ * Create a small sphere for light source visualization
+ * @param {number} segments - Number of subdivisions
+ * @returns {{data: Float32Array, indices: Uint16Array}} Vertex data and indices
  */
-export function getVertexCount(geometry) {
-    return geometry.positions.length / 3;
+export function createLightSphere(segments = 8) {
+    const positions = [];
+    const indices = [];
+    const radius = 0.1; // Small sphere for light
+
+    // Generate vertices
+    for (let latIndex = 0; latIndex <= segments; latIndex++) {
+        const v = latIndex / segments;
+        const theta = v * Math.PI;
+        
+        const sinTheta = Math.sin(theta);
+        const cosTheta = Math.cos(theta);
+
+        for (let lonIndex = 0; lonIndex <= segments; lonIndex++) {
+            const u = lonIndex / segments;
+            const phi = u * Math.PI * 2;
+            
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+
+            const x = cosPhi * sinTheta;
+            const y = cosTheta;
+            const z = sinPhi * sinTheta;
+
+            positions.push(x * radius, y * radius, z * radius);
+            positions.push(x, y, z);
+            positions.push(u, v);
+        }
+    }
+
+    // Generate triangle indices
+    for (let lat = 0; lat < segments; lat++) {
+        for (let lon = 0; lon < segments; lon++) {
+            const current = lat * (segments + 1) + lon;
+            const next = current + segments + 1;
+
+            indices.push(current, next, current + 1);
+            indices.push(next, next + 1, current + 1);
+        }
+    }
+
+    return {
+        data: new Float32Array(positions),
+        indices: new Uint16Array(indices)
+    };
 }
 
 /**
- * Calculate triangle count from geometry data
- * 
- * @param {Object} geometry - Geometry object with indices array
- * @returns {number} - Number of triangles
+ * Create a Vertex Array Object (VAO) from geometry data
+ * VAOs store vertex attribute configuration for efficient rendering
+ * @param {WebGL2RenderingContext} gl - WebGL context
+ * @param {{data: Float32Array, indices: Uint16Array}} geo - Geometry data
+ * @returns {{vao: WebGLVertexArrayObject, count: number}} VAO and index count
  */
-export function getTriangleCount(geometry) {
-    return geometry.indices.length / 3;
+export function createVAO(gl, geo) {
+    // Create and bind VAO
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    // Create and populate vertex buffer (VBO)
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, geo.data, gl.STATIC_DRAW);
+
+    // Create and populate index buffer (EBO/IBO)
+    const ebo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geo.indices, gl.STATIC_DRAW);
+
+    // Configure vertex attributes
+    // Each vertex has 8 floats: 3 position + 3 normal + 2 UV
+    const stride = 8 * 4; // 8 floats × 4 bytes per float
+
+    // Attribute 0: Position (vec3)
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
+
+    // Attribute 1: Normal (vec3)
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 3 * 4);
+
+    // Attribute 2: UV coordinates (vec2)
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, stride, 6 * 4);
+
+    // Unbind VAO to prevent accidental modification
+    gl.bindVertexArray(null);
+
+    return {
+        vao,
+        count: geo.indices.length
+    };
 }

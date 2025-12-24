@@ -224,23 +224,17 @@ input[type="checkbox"] {
     display: block;
 }
 
-/* Light Preview - Top Right */
 .light-preview {
     position: absolute;
     top: 12px;
     right: 12px;
-    width: 180px;
-    height: 180px;
-    background: rgba(0, 0, 0, 0.7);
+    width: 140px;
+    height: 140px;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: hidden;
-}
-
-#previewCanvas {
-    width: 100%;
-    height: 100%;
-    display: block;
+    background: #0f162e;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 /* Vector Tooltip */
@@ -285,6 +279,59 @@ input[type="checkbox"] {
 .control-panel::-webkit-scrollbar-thumb {
     background: var(--secondary-color);
     border-radius: 2px;
+}
+
+/* Vector Legend (Top Right) */
+.vector-legend {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(22, 33, 62, 0.92);
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    z-index: 50;
+}
+
+.vector-legend h3 {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+
+.legend-item:last-child {
+    margin-bottom: 0;
+}
+
+.color-box {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.3);
+}
+
+.vector-label {
+    font-weight: bold;
+    color: var(--secondary-color);
+    font-family: monospace;
+    min-width: 16px;
+}
+
+.vector-desc {
+    color: var(--text-primary);
+    font-size: 11px;
 }
 
 /* Responsive */

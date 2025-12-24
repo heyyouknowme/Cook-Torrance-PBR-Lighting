@@ -1,455 +1,454 @@
-// ============================================================
-// COOK-TORRANCE BRDF VERTEX SHADER
-// ============================================================
-// Transforms vertices from model space to clip space and
-// prepares data for the fragment shader
-export const vertexShaderSource = `#version 300 es
+/**
+ * WebGL Shader Module
+ * 
+ * Contains vertex and fragment shaders for the Cook-Torrance BRDF lighting model.
+ * The implementation follows physically-based rendering (PBR) principles using:
+ * - GGX/Trowbridge-Reitz normal distribution (D term)
+ * - Smith's masking-shadowing function (G term)
+ * - Fresnel-Schlick approximation (F term)
+ */
 
-// Vertex attributes (per-vertex data)
-in vec3 aPosition;  // Vertex position in model space
-in vec3 aNormal;    // Vertex normal in model space
+/**
+ * Vertex Shader (Shared)
+ * 
+ * Transforms vertices from model space to clip space and prepares data for fragment shader.
+ * Supports both normal rendering and shadow projection onto a plane.
+ * 
+ * Inputs:
+ * - aPos: Vertex position in model space
+ * - aNormal: Surface normal in model space
+ * - aUV: Texture coordinates
+ * 
+ * Outputs:
+ * - vWorldPos: Position in world space (for lighting calculations)
+ * - vNormal: Normal in world space (transformed by normal matrix)
+ * - vUV: Texture coordinates (pass-through)
+ */
+export const vertexShader = `#version 300 es
+precision highp float;
+
+// Vertex attributes
+layout(location = 0) in vec3 aPos;      // Position
+layout(location = 1) in vec3 aNormal;   // Normal vector
+layout(location = 2) in vec2 aUV;       // Texture coordinates
 
 // Transformation matrices
-uniform mat4 uModelMatrix;       // Model → World space
-uniform mat4 uViewMatrix;        // World → Camera space
-uniform mat4 uProjectionMatrix;  // Camera → Clip space (perspective)
-uniform mat3 uNormalMatrix;      // Normal transformation (inverse-transpose of model)
-uniform mat4 uLightSpaceMatrix;  // World → Light space (for shadow mapping)
+uniform mat4 uModel;       // Model matrix (model → world space)
+uniform mat4 uView;        // View matrix (world → camera space)
+uniform mat4 uProj;        // Projection matrix (camera → clip space)
+uniform mat4 uShadowMat;   // Shadow projection matrix (projects onto floor plane)
+uniform bool uUseShadowMat; // Whether to apply shadow projection
+uniform mat3 uNormalMat;   // Normal matrix (inverse-transpose of model matrix)
 
-// Outputs to fragment shader
-out vec3 vWorldPosition;  // Position in world space
-out vec3 vNormal;         // Normal in world space (interpolated)
-out vec4 vLightSpacePos;  // Position in light space (for shadows)
+// Output to fragment shader
+out vec3 vWorldPos;  // World-space position
+out vec3 vNormal;    // World-space normal
+out vec2 vUV;        // Texture coordinates
 
 void main() {
-    // Transform position to world space
-    vec4 worldPosition = uModelMatrix * vec4(aPosition, 1.0);
-    vWorldPosition = worldPosition.xyz;
+    // Transform vertex to world space first
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
     
-    // Transform normal to world space using normal matrix
-    // (Normal matrix is needed to handle non-uniform scaling correctly)
-    vNormal = normalize(uNormalMatrix * aNormal);
+    // If rendering shadow, project onto floor plane
+    if (uUseShadowMat) {
+        worldPos = uShadowMat * worldPos;
+    }
     
-    // Transform position to light space for shadow mapping
-    vLightSpacePos = uLightSpaceMatrix * worldPosition;
+    vWorldPos = worldPos.xyz;
+    vNormal = normalize(uNormalMat * aNormal); // Transform normal to world space
+    vUV = aUV;
     
-    // Final transformation: World → Camera → Clip space
-    gl_Position = uProjectionMatrix * uViewMatrix * worldPosition;
+    // Final transformation to clip space
+    gl_Position = uProj * uView * worldPos;
 }
 `;
 
-export const fragmentShaderSource = `#version 300 es
+/**
+ * Fragment Shader - Cook-Torrance BRDF
+ * 
+ * Implements physically-based rendering using the Cook-Torrance microfacet BRDF model.
+ * 
+ * BRDF Formula:
+ * f(l,v) = kD * (albedo / π) + kS * (D * G * F) / (4 * (n·l) * (n·v))
+ * 
+ * Where:
+ * - kD: Diffuse coefficient (energy not reflected specularly)
+ * - kS: Specular coefficient (equals Fresnel term F)
+ * - D: Normal Distribution Function (microfacet distribution)
+ * - G: Geometry function (shadowing and masking)
+ * - F: Fresnel term (reflection at different angles)
+ * - n: Surface normal, l: Light direction, v: View direction
+ */
+export const fragmentShader = `#version 300 es
 precision highp float;
 
-const float PI = 3.14159265359;
+// Input from vertex shader
+in vec3 vWorldPos;  // Fragment position in world space
+in vec3 vNormal;    // Interpolated normal
+in vec2 vUV;        // Texture coordinates
 
-// Inputs from vertex shader
-in vec3 vWorldPosition;  // World-space position of fragment
-in vec3 vNormal;         // World-space normal vector
-in vec4 vLightSpacePos;  // Position in light space for shadow mapping
-
-// Material properties
-uniform vec3 uAlbedo;       // Base color (diffuse albedo)
-uniform float uRoughness;   // Surface roughness (α): 0 = smooth, 1 = rough
-uniform float uMetallic;    // Metallic factor: 0 = dielectric, 1 = metal
-
-// Light properties
-uniform int uLightType;          // 0=point, 1=directional, 2=spot, 3=area
-uniform vec3 uLightPosition;     // Position of light source
-uniform vec3 uLightDirection;    // Direction for directional/spot lights
-uniform vec3 uLightColor;        // Color of light
-uniform float uLightIntensity;   // Light intensity multiplier
-uniform float uSpotAngle;        // Spot light cone angle
-uniform float uSpotSoftness;     // Spot light edge softness
-uniform vec2 uAreaSize;          // Area light dimensions
-
-uniform vec3 uCameraPosition;    // Camera/eye position
-
-// Shadow mapping
-uniform sampler2D uShadowMap;    // Shadow depth map
-uniform int uShadowEnabled;      // Enable/disable shadows
-uniform float uShadowBias;       // Shadow bias to prevent shadow acne
-
+// Output color
 out vec4 fragColor;
 
+// Camera
+uniform vec3 uCameraPos;  // Camera position for view direction calculation
+
+// Material properties (PBR parameters)
+uniform vec3 uAlbedo;       // Base color (diffuse reflectance)
+uniform float uMetallic;    // Metalness [0=dielectric, 1=metal]
+uniform float uRoughness;   // Surface roughness [0=smooth, 1=rough]
+
+// Light properties
+uniform int uLightType;         // 0=point, 1=directional, 2=spot, 3=area
+uniform vec3 uLightPos;         // Light position (world space)
+uniform vec3 uLightDir;         // Light direction (for directional/spot)
+uniform vec3 uLightColor;       // Light color (RGB)
+uniform float uLightIntensity;  // Light intensity multiplier
+uniform float uSpotAngle;       // Spotlight cone angle (cosine)
+uniform float uSpotSoftness;    // Spotlight edge softness
+uniform vec2 uAreaSize;         // Area light dimensions
+uniform float uShadowBlend;     // Shadow darkness [0=no shadow, 1=full shadow]
+
 /**
- * Fresnel-Schlick Approximation (F)
- * Computes the Fresnel term - how much light is reflected vs refracted
+ * Normal Distribution Function (D) - GGX / Trowbridge-Reitz
  * 
- * Step: Calculate reflectance at normal incidence (F0) and
- *       interpolate based on view angle using Schlick's approximation
+ * Describes the distribution of microfacet normals.
+ * Higher values when more microfacets align with the half vector H.
  * 
- * @param cosTheta - cos(angle between view and half vector) = V·H
- * @param F0 - Reflectance at normal incidence (base reflectivity)
- * @return Fresnel reflectance value (0-1 for each RGB channel)
+ * Formula: D = α² / (π * ((n·h)² * (α² - 1) + 1)²)
+ * 
+ * @param NdotH - Dot product of normal and half vector
+ * @param alpha - Roughness squared (α = roughness²)
+ * @return Distribution value
  */
-vec3 fresnelSchlick(float cosTheta, vec3 F0) {
-    // Schlick's approximation: F(θ) = F0 + (1 - F0)(1 - cos(θ))^5
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+float D_GGX(float NdotH, float alpha) {
+    float a2 = alpha * alpha;
+    float denom = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+    denom = 3.14159265 * denom * denom;
+    return a2 / max(0.0001, denom); // Avoid division by zero
 }
 
 /**
- * GGX/Trowbridge-Reitz Normal Distribution Function (D)
- * Describes distribution of microfacet normals (surface roughness)
+ * Geometry Function (G) - Smith's method with Schlick-GGX
  * 
- * Step: Calculate how many microfacets are aligned with half vector H
- *       Higher value = sharper specular highlight
+ * Accounts for microfacet shadowing and masking.
+ * Combines view direction and light direction contributions.
  * 
- * @param N - Surface normal
- * @param H - Half vector between view and light
- * @param roughness - Surface roughness parameter (α)
- * @return Distribution term D(h) - concentration of microfacets
+ * Schlick-GGX: G₁(v) = (n·v) / ((n·v) * (1 - k) + k)
+ * Smith's method: G = G₁(l) * G₁(v)
+ * 
+ * @param NdotV - Dot product of normal and view direction
+ * @param NdotL - Dot product of normal and light direction
+ * @param roughness - Surface roughness parameter
+ * @return Geometry occlusion factor
  */
-float distributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness;    // α = roughness²
-    float a2 = a * a;                    // α²
-    float NdotH = max(dot(N, H), 0.0);  // N·H
-    float NdotH2 = NdotH * NdotH;       // (N·H)²
-    
-    // GGX formula: D(h) = α² / (π((N·H)²(α² - 1) + 1)²)
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-    
-    return a2 / max(denom, 0.0001);  // Prevent division by zero
-}
-
-/**
- * Schlick-GGX Geometry Function (single direction)
- * Approximates microfacet self-shadowing for one direction
- * 
- * @param NdotV - cos(angle between normal and direction) = N·V or N·L
- * @param roughness - Surface roughness
- * @return Geometry attenuation for one direction
- */
-float geometrySchlickGGX(float NdotV, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;  // Remapping for direct lighting
-    
-    // Schlick-GGX: G1(v) = (N·V) / ((N·V)(1-k) + k)
+float G_SchlickGGX(float NdotV, float k) {
     return NdotV / (NdotV * (1.0 - k) + k);
 }
 
+float G_Smith(float NdotV, float NdotL, float roughness) {
+    // Remapping for direct lighting (k = (roughness + 1)² / 8)
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return G_SchlickGGX(NdotV, k) * G_SchlickGGX(NdotL, k);
+}
+
 /**
- * Smith's Geometry Function (G)
- * Combines self-shadowing for both view and light directions
+ * Fresnel Equation - Schlick's Approximation
  * 
- * Step: Calculate microfacet shadowing-masking term
- *       Accounts for geometry occlusion from both V and L directions
+ * Describes how light reflects at different angles.
+ * At grazing angles, all surfaces become more reflective.
+ * 
+ * Formula: F = F₀ + (1 - F₀) * (1 - cos(θ))⁵
+ * 
+ * @param cosTheta - Dot product of view direction and half vector
+ * @param F0 - Base reflectance (at normal incidence)
+ * @return Fresnel reflectance
+ */
+vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+/**
+ * Evaluate Cook-Torrance BRDF for a single light sample
+ * 
+ * Combines diffuse (Lambert) and specular (Cook-Torrance) components.
+ * 
+ * @param N - Surface normal
+ * @param V - View direction (to camera)
+ * @param L - Light direction (to light)
+ * @param radiance - Incoming light energy
+ * @return Outgoing light energy (reflected color)
+ */
+vec3 evaluateBRDF(vec3 N, vec3 V, vec3 L, vec3 radiance) {
+    vec3 H = normalize(V + L); // Half vector between view and light
+    
+    // Calculate dot products (clamped to [0,1] for lighting)
+    float NdotL = clamp(dot(N, L), 0.0, 1.0);
+    float NdotV = clamp(dot(N, V), 0.0, 1.0);
+    float NdotH = clamp(dot(N, H), 0.0, 1.0);
+    float VdotH = clamp(dot(V, H), 0.0, 1.0);
+
+    // Calculate Cook-Torrance BRDF terms
+    float alpha = max(0.001, uRoughness * uRoughness); // Squared roughness
+    float D = D_GGX(NdotH, alpha);                     // Normal distribution
+    float G = G_Smith(NdotV, NdotL, alpha);            // Geometry term
+
+    // Fresnel reflectance at normal incidence (F0)
+    // Dielectrics: ~0.04 (4% reflectance)
+    // Metals: use albedo color as F0
+    vec3 F0 = mix(vec3(0.04), uAlbedo, uMetallic);
+    vec3 F = fresnelSchlick(VdotH, F0);                // Fresnel term
+
+    // Specular component: (D * G * F) / (4 * NdotL * NdotV)
+    vec3 numerator = D * G * F;
+    float denom = max(0.001, 4.0 * NdotV * NdotL);
+    vec3 specular = numerator / denom;
+
+    // Energy conservation: kS + kD = 1
+    vec3 kS = F;                          // Specular reflection coefficient
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - uMetallic); // Diffuse (metals have no diffuse)
+
+    // Lambertian diffuse: albedo / π
+    vec3 diffuse = kD * uAlbedo / 3.14159265;
+
+    // Combine diffuse and specular, multiply by radiance and angle
+    return (diffuse + specular) * radiance * NdotL;
+}
+
+/**
+ * Calculate spotlight attenuation with smooth falloff
+ * 
+ * @param L - Light direction
+ * @param dir - Spotlight direction
+ * @return Attenuation factor [0, 1]
+ */
+float spotAttenuation(vec3 L, vec3 dir) {
+    float cosTheta = dot(normalize(-dir), L);
+    float edge = uSpotAngle;
+    float softness = uSpotSoftness;
+    // Smooth transition from full intensity to zero
+    return smoothstep(edge, edge + softness, cosTheta);
+}
+
+/**
+ * Build orthonormal basis from a direction vector
+ * Used for area light sampling
+ * 
+ * @param n - Input direction (will be one basis vector)
+ * @param t - Output tangent vector
+ * @param b - Output bitangent vector
+ */
+void basisFromDir(vec3 n, out vec3 t, out vec3 b) {
+    // Choose a vector not parallel to n
+    vec3 up = abs(n.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    t = normalize(cross(up, n));
+    b = cross(n, t);
+}
+
+/**
+ * Compute lighting for all light types
+ * 
+ * Handles point, directional, spot, and area lights.
+ * Calculates light direction, attenuation, and evaluates BRDF.
  * 
  * @param N - Surface normal
  * @param V - View direction
- * @param L - Light direction
- * @param roughness - Surface roughness
- * @return Combined geometry term G(l,v,h)
+ * @return Lit color
  */
-float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);  // N·V
-    float NdotL = max(dot(N, L), 0.0);  // N·L
-    
-    // Smith's method: G(l,v,h) = G1(v) * G1(l)
-    return geometrySchlickGGX(NdotV, roughness) * geometrySchlickGGX(NdotL, roughness);
-}
+vec3 computeLighting(vec3 N, vec3 V) {
+    vec3 result = vec3(0.0);
+    vec3 L;
+    float attenuation = 1.0;
 
-/**
- * Calculate Light Direction and Attenuation
- * Handles different light types: point, directional, spot, and area lights
- * 
- * @param L (out) - Normalized light direction vector
- * @param attenuation (out) - Light attenuation factor based on distance/type
- */
-void calculateLight(out vec3 L, out float attenuation) {
     if (uLightType == 0) {
-        // Point Light: Radiates equally in all directions from a point
-        vec3 lightVec = uLightPosition - vWorldPosition;
-        float dist = length(lightVec);
-        L = normalize(lightVec);
-        attenuation = 1.0 / (dist * dist);  // Inverse square law
+        // Point light: inverse-square falloff
+        vec3 lightVec = uLightPos - vWorldPos;
+        float dist = max(0.001, length(lightVec));
+        L = lightVec / dist;
+        attenuation = 1.0 / (dist * dist);
+        result += evaluateBRDF(N, V, L, uLightColor * uLightIntensity * attenuation);
+        
     } else if (uLightType == 1) {
-        // Directional Light: Parallel rays (like sun)
-        L = normalize(-uLightDirection);
-        attenuation = 1.0;  // No attenuation - infinite distance
+        // Directional light: no attenuation (sun-like)
+        L = normalize(-uLightDir);
+        result += evaluateBRDF(N, V, L, uLightColor * uLightIntensity);
+        
     } else if (uLightType == 2) {
-        // Spot Light: Cone of light with soft edges
-        vec3 lightVec = uLightPosition - vWorldPosition;
-        float dist = length(lightVec);
-        L = normalize(lightVec);
+        // Spot light: cone with smooth edges + inverse-square falloff
+        vec3 lightVec = uLightPos - vWorldPos;
+        float dist = max(0.001, length(lightVec));
+        L = lightVec / dist;
+        attenuation = spotAttenuation(L, uLightDir) * (1.0 / (dist * dist));
+        result += evaluateBRDF(N, V, L, uLightColor * uLightIntensity * attenuation);
         
-        // Calculate angle between light direction and surface
-        float theta = dot(L, normalize(-uLightDirection));
-        float innerCone = cos(uSpotAngle * 0.5);
-        float outerCone = cos(uSpotAngle * 0.5 + uSpotSoftness);
-        
-        // Smooth transition at cone edges
-        float spotEffect = smoothstep(outerCone, innerCone, theta);
-        attenuation = spotEffect / (dist * dist);
     } else {
-        // Area Light: Extended light source (simplified)
-        vec3 lightVec = uLightPosition - vWorldPosition;
-        float dist = length(lightVec);
-        L = normalize(lightVec);
+        // Area light: rectangular light with better sampling (3x3 grid = 9 samples)
+        vec3 t, b;
+        basisFromDir(normalize(-uLightDir), t, b);
+        vec2 halfSize = uAreaSize * 0.5;
         
-        // Modified attenuation accounting for area size
-        float area = uAreaSize.x * uAreaSize.y;
-        attenuation = area / (dist * dist + area);
-    }
-}
-
-/**
- * Shadow Mapping with PCF (Percentage Closer Filtering)
- * Determines if fragment is in shadow by comparing depth values
- * 
- * @param lightSpacePos - Fragment position in light's coordinate space
- * @param N - Surface normal
- * @param L - Light direction
- * @return Shadow factor: 1.0 = fully lit, 0.0 = fully shadowed
- */
-float calculateShadow(vec4 lightSpacePos, vec3 N, vec3 L) {
-    if (uShadowEnabled == 0) return 1.0;  // Shadows disabled
-    
-    // Step 1: Convert to NDC (Normalized Device Coordinates)
-    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;  // Perspective divide
-    projCoords = projCoords * 0.5 + 0.5;  // Transform from [-1,1] to [0,1]
-    
-    // Step 2: Check if fragment is outside shadow map bounds
-    if (projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 || 
-        projCoords.y < 0.0 || projCoords.y > 1.0) {
-        return 1.0;  // Outside shadow map = no shadow
-    }
-    
-    float currentDepth = projCoords.z;
-    
-    // Step 3: Apply bias to prevent "shadow acne"
-    // Bias varies with surface angle relative to light
-    float bias = max(uShadowBias * (1.0 - dot(N, L)), uShadowBias * 0.1);
-    
-    // Step 4: PCF - Sample multiple texels for soft shadows
-    float shadow = 0.0;
-    vec2 texelSize = 1.0 / vec2(textureSize(uShadowMap, 0));
-    
-    // 5x5 kernel sampling
-    for (int x = -2; x <= 2; ++x) {
-        for (int y = -2; y <= 2; ++y) {
-            float pcfDepth = texture(uShadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
-            shadow += currentDepth - bias > pcfDepth ? 0.0 : 1.0;
+        // Sample a 3x3 grid across the area light for better coverage
+        for (int ix = 0; ix < 3; ++ix) {
+            for (int iy = 0; iy < 3; ++iy) {
+                // Calculate normalized position on grid [-1, 1]
+                float u = (float(ix) - 1.0); // -1, 0, 1
+                float v = (float(iy) - 1.0); // -1, 0, 1
+                
+                // Position on the rectangular light
+                vec3 samplePos = uLightPos + (u * halfSize.x) * t + (v * halfSize.y) * b;
+                vec3 lightVec = samplePos - vWorldPos;
+                float dist = max(0.001, length(lightVec));
+                L = lightVec / dist;
+                
+                // Weight by light direction (area lights emit in one direction)
+                // Using light normal direction for proper one-sided emission
+                vec3 lightNormal = normalize(-uLightDir);
+                float cosTheta = dot(lightNormal, -L); // Negative L because we want light-to-surface
+                
+                // Only accept light from the front side of the area light
+                if (cosTheta > 0.0) {
+                    attenuation = cosTheta / (dist * dist);
+                    result += evaluateBRDF(N, V, L, uLightColor * uLightIntensity * attenuation);
+                }
+            }
         }
+        
+        // Average all 9 samples
+        result /= 9.0;
     }
-    
-    return shadow / 25.0;  // Average of 25 samples
+
+    // Add small ambient term to prevent completely black surfaces
+    vec3 ambient = 0.03 * uAlbedo;
+    return ambient + result;
 }
 
-/**
- * MAIN FRAGMENT SHADER - Cook-Torrance BRDF Implementation
- * 
- * Physically-Based Rendering using the Cook-Torrance microfacet model:
- * 
- * Rendering Equation:
- * Lo = ∫ (kd * albedo/π + ks * DFG/(4(N·V)(N·L))) * Li * (N·L) dω
- * 
- * Where:
- * - kd = diffuse coefficient (1 - ks) * (1 - metallic)
- * - ks = specular coefficient (Fresnel F)
- * - D = Normal Distribution Function (GGX)
- * - F = Fresnel term (Schlick approximation)
- * - G = Geometry function (Smith's method)
- * - Li = Incoming light radiance
- * - N·L = Lambert's cosine law
- */
 void main() {
-    // ==================== STEP 1: Setup Vectors ====================
-    // Calculate essential vectors for lighting
-    vec3 N = normalize(vNormal);                          // Surface normal (N)
-    vec3 V = normalize(uCameraPosition - vWorldPosition); // View direction (V)
+    vec3 N = normalize(vNormal);                    // Surface normal
+    vec3 V = normalize(uCameraPos - vWorldPos);     // View direction
     
-    // Get light direction and attenuation from light source
-    vec3 L;              // Light direction (L)
-    float attenuation;   // Light attenuation factor
-    calculateLight(L, attenuation);
+    // Compute lighting
+    vec3 color = computeLighting(N, V);
     
-    // Calculate half-vector (H) - halfway between V and L
-    // Used for specular reflection calculations
-    vec3 H = normalize(V + L);  // H = normalize(V + L)
-    
-    // Calculate incoming radiance (Li)
-    vec3 radiance = uLightColor * uLightIntensity * attenuation;
-    
-    // ==================== STEP 2: Calculate F0 ====================
-    // F0 = Surface reflectance at normal incidence (0° angle)
-    // Dielectrics (non-metals): ~0.04 (4% reflectance)
-    // Metals: Use albedo color as F0
-    vec3 F0 = vec3(0.04);                      // Base reflectance for dielectrics
-    F0 = mix(F0, uAlbedo, uMetallic);          // Interpolate based on metallic
-    
-    // ==================== STEP 3: Cook-Torrance BRDF Terms ====================
-    // Calculate the three core BRDF functions:
-    
-    // D - Normal Distribution Function (GGX/Trowbridge-Reitz)
-    // Controls the size and shape of specular highlights
-    float D = distributionGGX(N, H, uRoughness);
-    
-    // G - Geometry Function (Smith's method with Schlick-GGX)
-    // Accounts for microfacet shadowing and masking
-    float G = geometrySmith(N, V, L, uRoughness);
-    
-    // F - Fresnel Term (Schlick's approximation)
-    // Determines reflection vs refraction based on view angle
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-    
-    // ==================== STEP 4: Calculate Dot Products ====================
-    float NdotV = max(dot(N, V), 0.0);  // N·V - View angle
-    float NdotL = max(dot(N, L), 0.0);  // N·L - Lambert's cosine law
-    
-    // ==================== STEP 5: Cook-Torrance Specular BRDF ====================
-    // Specular BRDF = (D * F * G) / (4 * (N·V) * (N·L))
-    vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
-    
-    // ==================== STEP 6: Energy Conservation ====================
-    // kS = Specular reflection (equals Fresnel F)
-    vec3 kS = F;
-    
-    // kD = Diffuse reflection (what's left after specular)
-    // For metals, kD = 0 (no diffuse reflection)
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - uMetallic);
-    
-    // ==================== STEP 7: Lambert Diffuse BRDF ====================
-    // Diffuse BRDF = albedo / π (Lambertian reflectance)
-    vec3 diffuse = kD * uAlbedo / PI;
-    
-    // ==================== STEP 8: Apply Shadows ====================
-    // Calculate shadow factor (0 = full shadow, 1 = no shadow)
-    float shadow = calculateShadow(vLightSpacePos, N, L);
-    
-    // ==================== STEP 9: Combine BRDF Components ====================
-    // Outgoing radiance: Lo = (diffuse + specular) * Li * (N·L) * shadow
-    vec3 Lo = (diffuse + specular) * radiance * NdotL * shadow;
-    
-    // ==================== STEP 10: Ambient Lighting ====================
-    // Add ambient term to prevent completely black shadows
-    vec3 ambient = vec3(0.03) * uAlbedo;  // Base ambient (3%)
-    
-    // Enhanced ambient for metallic surfaces (simulates environment reflection)
-    vec3 envReflect = F0 * 0.15 * (1.0 - uRoughness);
-    ambient += envReflect * uMetallic;
-    
-    // ==================== STEP 11: Final Color ====================
-    // Combine direct lighting and ambient
-    vec3 color = ambient + Lo;
-    
-    // ==================== STEP 12: Tone Mapping ====================
-    // Reinhard tone mapping: maps HDR to LDR [0,1]
-    color = color / (color + vec3(1.0));
-    
-    // ==================== STEP 13: Gamma Correction ====================
-    // Convert from linear to sRGB color space (γ = 2.2)
-    color = pow(color, vec3(1.0 / 2.2));
+    // Apply shadow darkening
+    color = mix(color, color * (1.0 - uShadowBlend), uShadowBlend);
     
     fragColor = vec4(color, 1.0);
 }
 `;
 
-// ============================================================
-// SHADOW MAP DEPTH SHADER
-// ============================================================
-// Renders the scene from the light's perspective to generate
-// a depth map used for shadow mapping
+/**
+ * Fragment Shader - Emissive (Unlit)
+ * Used for drawing helper geometry like the light source indicator
+ */
+export const emissiveFragmentShader = `#version 300 es
+precision highp float;
 
-// Shadow Map Vertex Shader
-// Transforms vertices to light space and outputs depth
-export const shadowVertexShader = `#version 300 es
-in vec3 aPosition;  // Vertex position in model space
+in vec3 vWorldPos; // Unused but kept for interface compatibility
+in vec3 vNormal;
+in vec2 vUV;
 
-// Transformation matrices
-uniform mat4 uModelMatrix;       // Model → World space
-uniform mat4 uLightSpaceMatrix;  // World → Light space (orthographic or perspective)
+uniform vec3 uColor; // Final color
+
+out vec4 fragColor;
 
 void main() {
-    // Transform vertex directly to light's clip space
-    // Depth is automatically written to the depth buffer
-    gl_Position = uLightSpaceMatrix * uModelMatrix * vec4(aPosition, 1.0);
+    fragColor = vec4(uColor, 1.0);
 }
 `;
 
-// Shadow Map Fragment Shader
-// Minimal fragment shader - depth is written automatically
+/**
+ * Shadow Fragment Shader
+ * 
+ * Soft shadow shader with distance-based opacity falloff.
+ * Creates realistic soft edges by calculating distance from shadow center.
+ * Used with shadow projection matrix to project object silhouette onto floor.
+ */
 export const shadowFragmentShader = `#version 300 es
 precision highp float;
 
-out vec4 fragColor;
-
-void main() {
-    // Fragment depth is automatically written to GL_DEPTH_ATTACHMENT
-    // This dummy output is required but not used
-    fragColor = vec4(1.0);
-}
-`;
-
-// ============================================================
-// LIGHT PREVIEW SHADERS
-// ============================================================
-// Simple shaders for rendering the light position visualization
-// in the preview window (top-right corner)
-
-// Preview Vertex Shader
-export const previewVertexShader = `#version 300 es
-in vec3 aPosition;  // Vertex position
-in vec3 aNormal;    // Vertex normal
-
-uniform mat4 uModelMatrix;       // Model transformation
-uniform mat4 uViewMatrix;        // View transformation
-uniform mat4 uProjectionMatrix;  // Projection transformation
-
-out vec3 vNormal;  // Pass normal to fragment shader
-
-void main() {
-    vNormal = aNormal;
-    gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);
-}
-`;
-
-// Preview Fragment Shader
-// Simple lighting for preview spheres (object and light)
-export const previewFragmentShader = `#version 300 es
-precision highp float;
-
-in vec3 vNormal;          // Interpolated normal
-uniform vec3 uColor;      // Base color
-uniform float uEmissive;  // Emissive factor (1.0 for light, 0.0 for object)
+in vec3 vWorldPos;  // World position of shadow pixel
+in vec3 vNormal;
+in vec2 vUV;
 
 out vec4 fragColor;
 
+uniform float uAlpha;        // Base shadow opacity
+uniform vec3 uShadowCenter;  // Center of shadow in world space
+uniform float uShadowRadius; // Radius for soft edge falloff
+
 void main() {
-    // Simple diffuse lighting
-    vec3 N = normalize(vNormal);
-    vec3 L = normalize(vec3(1.0, 1.0, 1.0));  // Fixed light direction
-    float diff = max(dot(N, L), 0.0) * 0.5 + 0.5;  // Half-Lambert
+    // Calculate distance from shadow center
+    vec2 shadowPos = vWorldPos.xz;  // Use XZ plane (horizontal)
+    vec2 centerPos = uShadowCenter.xz;
+    float dist = length(shadowPos - centerPos);
     
-    // Mix between lit and emissive based on uEmissive
-    vec3 color = uColor * mix(diff, 1.0, uEmissive);
-    fragColor = vec4(color, 1.0);
+    // Soft falloff using smoothstep for smooth edges
+    // Inner radius: full opacity, outer radius: fade to transparent
+    float innerRadius = uShadowRadius * 0.5;
+    float outerRadius = uShadowRadius;
+    float edgeFalloff = 1.0 - smoothstep(innerRadius, outerRadius, dist);
+    
+    // Apply falloff to base alpha
+    float finalAlpha = uAlpha * edgeFalloff;
+    
+    // Output semi-transparent black with soft edges
+    fragColor = vec4(0.0, 0.0, 0.0, finalAlpha);
 }
 `;
 
-export function getUniformNames() {
-    return [
-        'uModelMatrix',
-        'uViewMatrix',
-        'uProjectionMatrix',
-        'uNormalMatrix',
-        'uAlbedo',
-        'uRoughness',
-        'uMetallic',
-        'uLightType',
-        'uLightPosition',
-        'uLightDirection',
-        'uLightColor',
-        'uLightIntensity',
-        'uSpotAngle',
-        'uSpotSoftness',
-        'uAreaSize',
-        'uCameraPosition'
-    ];
+/**
+ * Compile a shader from source code
+ * 
+ * @param {WebGL2RenderingContext} gl - WebGL context
+ * @param {number} type - Shader type (gl.VERTEX_SHADER or gl.FRAGMENT_SHADER)
+ * @param {string} source - GLSL source code
+ * @returns {WebGLShader} Compiled shader
+ * @throws {Error} If compilation fails
+ */
+export function compileShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    
+    // Check for compilation errors
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const log = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(`Shader compilation failed: ${log}`);
+    }
+    
+    return shader;
 }
 
-export function getAttributeNames() {
-    return ['aPosition', 'aNormal'];
+/**
+ * Create a shader program from vertex and fragment shader source
+ * 
+ * @param {WebGL2RenderingContext} gl - WebGL context
+ * @param {string} vertexSource - Vertex shader GLSL source
+ * @param {string} fragmentSource - Fragment shader GLSL source
+ * @returns {WebGLProgram} Linked shader program
+ * @throws {Error} If linking fails
+ */
+export function createProgram(gl, vertexSource, fragmentSource) {
+    const vertexShaderObj = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
+    const fragmentShaderObj = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+    
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShaderObj);
+    gl.attachShader(program, fragmentShaderObj);
+    gl.linkProgram(program);
+    
+    // Check for linking errors
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const log = gl.getProgramInfoLog(program);
+        gl.deleteProgram(program);
+        throw new Error(`Program linking failed: ${log}`);
+    }
+    
+    // Clean up shaders (they're now part of the program)
+    gl.deleteShader(vertexShaderObj);
+    gl.deleteShader(fragmentShaderObj);
+    
+    return program;
 }
-
