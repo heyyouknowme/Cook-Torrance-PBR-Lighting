@@ -68,13 +68,13 @@ export class UIManager {
         this.state = {
             // Material properties
             albedo: [1, 0.42, 0.42],
-            roughness: 0.3,
-            metallic: 0.5,
+            roughness: 0.72,
+            metallic: 1.0,
             
             // Light properties
             lightColor: [1, 1, 1],
-            lightIntensity: 3,
-            lightPos: [2, 2, 2],
+            lightIntensity: 10.0,
+            lightPos: [1.3, 1.0, 0.4],
             lightDir: [0, -1, -1],
             lightType: 0, // 0=point, 1=directional, 2=spot, 3=area
             
