@@ -340,15 +340,44 @@ class CookTorranceApp {
                 const t = (-b - Math.sqrt(discriminant)) / (2.0 * a);
                 
                 if (t > 0) {
-                    // Calculate surface point
+                    // Calculate surface point in world space
                     const surfacePoint = [
                         rayOrigin[0] + t * rayDir[0],
                         rayOrigin[1] + t * rayDir[1],
                         rayOrigin[2] + t * rayDir[2]
                     ];
                     
-                    // For sphere centered at origin, normal = surfacePoint (already normalized by sphere equation)
-                    const N = this.normalize(surfacePoint);
+                    // Apply inverse rotation to get point in object space
+                    const cosX = Math.cos(-this.rotationX);
+                    const sinX = Math.sin(-this.rotationX);
+                    const cosY = Math.cos(-this.rotationY);
+                    const sinY = Math.sin(-this.rotationY);
+                    
+                    // Inverse Y rotation
+                    const x1 = surfacePoint[0] * cosY - surfacePoint[2] * sinY;
+                    const y1 = surfacePoint[1];
+                    const z1 = surfacePoint[0] * sinY + surfacePoint[2] * cosY;
+                    
+                    // Inverse X rotation
+                    const x2 = x1;
+                    const y2 = y1 * cosX + z1 * sinX;
+                    const z2 = -y1 * sinX + z1 * cosX;
+                    
+                    // Normal in object space (for sphere: normalized position)
+                    const objectSpaceNormal = this.normalize([x2, y2, z2]);
+                    
+                    // Transform normal back to world space (forward rotation)
+                    // Apply X rotation
+                    const nx1 = objectSpaceNormal[0];
+                    const ny1 = objectSpaceNormal[1] * Math.cos(this.rotationX) - objectSpaceNormal[2] * Math.sin(this.rotationX);
+                    const nz1 = objectSpaceNormal[1] * Math.sin(this.rotationX) + objectSpaceNormal[2] * Math.cos(this.rotationX);
+                    
+                    // Apply Y rotation
+                    const nx2 = nx1 * Math.cos(this.rotationY) + nz1 * Math.sin(this.rotationY);
+                    const ny2 = ny1;
+                    const nz2 = -nx1 * Math.sin(this.rotationY) + nz1 * Math.cos(this.rotationY);
+                    
+                    const N = this.normalize([nx2, ny2, nz2]);
                     const L = this.normalize(this.subtract(this.params.lightPosition, surfacePoint));
                     const V = this.normalize(this.subtract(this.cameraPosition, surfacePoint));
                     const H = this.normalize(this.add(V, L));
@@ -456,8 +485,12 @@ class CookTorranceApp {
         const lightDir = this.normalize(lp.map(v => -v));
         
         // Light view matrix - looking at origin from light position
+        // Use actual light position for consistent shadow direction
+        const distance = Math.sqrt(lp[0]*lp[0] + lp[1]*lp[1] + lp[2]*lp[2]);
+        const scaledLp = lp.map(v => v * (5 / distance)); // Scale to consistent distance
+        
         const lightView = createLookAtMatrix(
-            [lp[0] * 2, lp[1] * 2, lp[2] * 2],
+            scaledLp,
             [0, 0, 0],
             [0, 1, 0]
         );
