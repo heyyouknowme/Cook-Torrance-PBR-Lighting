@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cook-Torrance Lighting Model - WebGL Demo</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Control Panel -->
+        <aside class="control-panel">
+            <h2>Cook-Torrance BRDF</h2>
+            
+            <!-- Light Type Selection -->
+            <section class="control-section">
+                <h3>Light Type</h3>
+                <div class="control-group">
+                    <select id="lightType">
+                        <option value="0">Point Light</option>
+                        <option value="1">Directional Light</option>
+                        <option value="2">Spot Light</option>
+                        <option value="3">Area Light</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Material Properties -->
+            <section class="control-section">
+                <h3>Material</h3>
+                <div class="control-group">
+                    <label for="roughness">Roughness (α)</label>
+                    <input type="range" id="roughness" min="0.01" max="1" step="0.01" value="0.3">
+                    <span id="roughness-value" class="value-display">0.30</span>
+                </div>
+                <div class="control-group">
+                    <label for="metallic">Metallic</label>
+                    <input type="range" id="metallic" min="0" max="1" step="0.01" value="0.5">
+                    <span id="metallic-value" class="value-display">0.50</span>
+                </div>
+                <div class="control-group">
+                    <label for="albedo">Base Color</label>
+                    <input type="color" id="albedo" value="#ff6b6b">
+                </div>
+            </section>
+
+            <!-- Light Properties -->
+            <section class="control-section">
+                <h3>Light</h3>
+                <div class="control-group">
+                    <label for="lightColor">Color</label>
+                    <input type="color" id="lightColor" value="#ffffff">
+                </div>
+                <div class="control-group">
+                    <label for="lightIntensity">Intensity</label>
+                    <input type="range" id="lightIntensity" min="0.1" max="10" step="0.1" value="3">
+                    <span id="lightIntensity-value" class="value-display">3.0</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightX">Position X</label>
+                    <input type="range" id="lightX" min="-5" max="5" step="0.1" value="2">
+                    <span id="lightX-value" class="value-display">2.0</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightY">Position Y</label>
+                    <input type="range" id="lightY" min="-5" max="5" step="0.1" value="2">
+                    <span id="lightY-value" class="value-display">2.0</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightZ">Position Z</label>
+                    <input type="range" id="lightZ" min="-5" max="5" step="0.1" value="2">
+                    <span id="lightZ-value" class="value-display">2.0</span>
+                </div>
+                
+                <!-- Spot Light specific controls -->
+                <div id="spotControls" class="light-specific-controls" style="display: none;">
+                    <div class="control-group">
+                        <label for="spotAngle">Cone Angle</label>
+                        <input type="range" id="spotAngle" min="0.1" max="1.5" step="0.01" value="0.5">
+                        <span id="spotAngle-value" class="value-display">0.50</span>
+                    </div>
+                    <div class="control-group">
+                        <label for="spotSoftness">Softness</label>
+                        <input type="range" id="spotSoftness" min="0" max="0.5" step="0.01" value="0.1">
+                        <span id="spotSoftness-value" class="value-display">0.10</span>
+                    </div>
+                </div>
+                
+                <!-- Area Light specific controls -->
+                <div id="areaControls" class="light-specific-controls" style="display: none;">
+                    <div class="control-group">
+                        <label for="areaWidth">Width</label>
+                        <input type="range" id="areaWidth" min="0.1" max="5" step="0.1" value="1">
+                        <span id="areaWidth-value" class="value-display">1.0</span>
+                    </div>
+                    <div class="control-group">
+                        <label for="areaHeight">Height</label>
+                        <input type="range" id="areaHeight" min="0.1" max="5" step="0.1" value="1">
+                        <span id="areaHeight-value" class="value-display">1.0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Object Selection -->
+            <section class="control-section">
+                <h3>Object</h3>
+                <div class="control-group">
+                    <select id="objectType">
+                        <option value="sphere">Sphere</option>
+                        <option value="cube">Cube</option>
+                        <option value="torus">Torus</option>
+                    </select>
+                </div>
+                <div class="control-group checkbox-group">
+                    <input type="checkbox" id="autoRotate" checked>
+                    <label for="autoRotate">Auto Rotate</label>
+                </div>
+                <div class="control-group checkbox-group">
+                    <input type="checkbox" id="shadowEnabled" checked>
+                    <label for="shadowEnabled">Shadows</label>
+                </div>
+            </section>
+
+            <!-- Variable Display -->
+            <section class="control-section variables-section">
+                <h3>Vectors (hover on surface)</h3>
+                <div class="variable-list">
+                    <div class="variable-item"><span class="var-name">N</span> <span class="var-desc">Surface Normal</span></div>
+                    <div class="variable-item"><span class="var-name">L</span> <span class="var-desc">Light Direction</span></div>
+                    <div class="variable-item"><span class="var-name">V</span> <span class="var-desc">View Direction</span></div>
+                    <div class="variable-item"><span class="var-name">H</span> <span class="var-desc">Half Vector</span></div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Main Canvas Area -->
+        <main class="canvas-area">
+            <div class="canvas-container">
+                <canvas id="glCanvas"></canvas>
+                <!-- Tooltip for hover info -->
+                <div id="vectorTooltip" class="vector-tooltip" style="display: none;">
+                    <div class="tooltip-row"><span class="vec-label">N:</span> <span id="vecN">-</span></div>
+                    <div class="tooltip-row"><span class="vec-label">L:</span> <span id="vecL">-</span></div>
+                    <div class="tooltip-row"><span class="vec-label">V:</span> <span id="vecV">-</span></div>
+                    <div class="tooltip-row"><span class="vec-label">H:</span> <span id="vecH">-</span></div>
+                    <div class="tooltip-row"><span class="vec-label">N·H:</span> <span id="vecNdotH">-</span></div>
+                </div>
+            </div>
+            
+            <!-- Light Preview (Top Right) -->
+            <div class="light-preview">
+                <canvas id="previewCanvas"></canvas>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

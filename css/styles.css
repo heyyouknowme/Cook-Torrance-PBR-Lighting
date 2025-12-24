@@ -1,0 +1,308 @@
+/* Cook-Torrance WebGL Demo - Compact UI */
+
+:root {
+    --primary-color: #2c3e50;
+    --secondary-color: #3498db;
+    --accent-color: #e74c3c;
+    --background-dark: #1a1a2e;
+    --background-light: #16213e;
+    --text-primary: #ecf0f1;
+    --text-secondary: #bdc3c7;
+    --border-color: #34495e;
+    --success-color: #2ecc71;
+    --panel-bg: rgba(22, 33, 62, 0.95);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--background-dark);
+    color: var(--text-primary);
+    overflow: hidden;
+}
+
+/* Allow scrolling on control panel */
+.control-panel {
+    overflow-y: auto !important;
+    overflow-x: hidden;
+}
+
+/* Main App Layout */
+.app-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* Left Control Panel - Compact */
+.control-panel {
+    width: 240px;
+    min-width: 240px;
+    background: var(--panel-bg);
+    padding: 12px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-color);
+    font-size: 12px;
+}
+
+.control-panel h2 {
+    font-size: 14px;
+    color: var(--secondary-color);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--secondary-color);
+}
+
+.control-panel h3 {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.control-section {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.control-section:last-child {
+    border-bottom: none;
+}
+
+.control-group {
+    margin-bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.control-group label {
+    flex: 1;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.value-display {
+    min-width: 42px;
+    padding: 2px 6px;
+    background: var(--background-dark);
+    border-radius: 3px;
+    font-size: 10px;
+    text-align: right;
+    color: var(--success-color);
+    font-family: monospace;
+    flex-shrink: 0;
+}
+
+input[type="range"] {
+    width: 100%;
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 2px;
+    outline: none;
+    -webkit-appearance: none;
+    margin-top: 4px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: var(--secondary-color);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+input[type="color"] {
+    width: 100%;
+    height: 24px;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    cursor: pointer;
+    background: transparent;
+    padding: 0;
+}
+
+select {
+    width: 100%;
+    padding: 6px;
+    background: var(--background-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.checkbox-group label {
+    flex: none;
+    margin: 0;
+}
+
+input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--secondary-color);
+}
+
+/* Variables Section */
+.variables-section {
+    background: rgba(52, 152, 219, 0.1);
+    border-radius: 4px;
+    padding: 8px !important;
+    margin-top: 8px;
+}
+
+.variable-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.variable-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+}
+
+.var-name {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    background: var(--secondary-color);
+    color: white;
+    border-radius: 3px;
+    text-align: center;
+    line-height: 16px;
+    font-weight: bold;
+    font-family: monospace;
+}
+
+.var-desc {
+    color: var(--text-secondary);
+}
+
+/* Light-specific controls */
+.light-specific-controls {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-color);
+}
+
+/* Main Canvas Area */
+.canvas-area {
+    flex: 1;
+    position: relative;
+    background: #0a0a1a;
+}
+
+.canvas-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+#glCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Light Preview - Top Right */
+.light-preview {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 180px;
+    height: 180px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+#previewCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Vector Tooltip */
+.vector-tooltip {
+    position: absolute;
+    background: rgba(22, 33, 62, 0.95);
+    border: 1px solid var(--secondary-color);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 11px;
+    pointer-events: none;
+    z-index: 100;
+    min-width: 160px;
+}
+
+.tooltip-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-family: monospace;
+}
+
+.tooltip-row:last-child {
+    margin-bottom: 0;
+}
+
+.vec-label {
+    color: var(--secondary-color);
+    font-weight: bold;
+    min-width: 32px;
+}
+
+/* Scrollbar */
+.control-panel::-webkit-scrollbar {
+    width: 4px;
+}
+
+.control-panel::-webkit-scrollbar-track {
+    background: var(--background-dark);
+}
+
+.control-panel::-webkit-scrollbar-thumb {
+    background: var(--secondary-color);
+    border-radius: 2px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+    
+    .control-panel {
+        width: 100%;
+        min-width: auto;
+        max-height: 35vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .light-preview {
+        width: 120px;
+        height: 120px;
+    }
+}
