@@ -306,45 +306,99 @@ class CookTorranceApp {
         const tooltip = document.getElementById('vectorTooltip');
         if (!tooltip) return;
         
-        this.canvas.addEventListener('mousemove', (e) => {
+        const showTooltip = (clientX, clientY) => {
             const rect = this.canvas.getBoundingClientRect();
-            const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-            const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            const y = -((clientY - rect.top) / rect.height) * 2 + 1;
             
-            // Simple ray-sphere intersection for demo
-            const rayDir = [x * 0.5, y * 0.5, -1];
-            const len = Math.sqrt(rayDir[0]**2 + rayDir[1]**2 + rayDir[2]**2);
-            const rd = rayDir.map(v => v / len);
+            // Proper ray-sphere intersection from camera
+            const aspect = this.canvas.width / this.canvas.height;
+            const fov = degToRad(45);
+            const tanHalfFov = Math.tan(fov / 2);
             
-            // Check if roughly over the object (simplified)
-            const distFromCenter = Math.sqrt(x*x + y*y);
-            if (distFromCenter < 0.5) {
-                // Approximate surface point and calculate vectors
-                const surfacePoint = [x * 0.7, y * 0.7, Math.sqrt(Math.max(0, 1 - x*x - y*y))];
-                const N = this.normalize(surfacePoint);
-                const L = this.normalize(this.subtract(this.params.lightPosition, surfacePoint));
-                const V = this.normalize(this.subtract(this.cameraPosition, surfacePoint));
-                const H = this.normalize(this.add(V, L));
+            // Ray direction in view space
+            const rayDir = this.normalize([
+                x * aspect * tanHalfFov,
+                y * tanHalfFov,
+                -1
+            ]);
+            
+            // Ray origin is camera position
+            const rayOrigin = this.cameraPosition;
+            const sphereCenter = [0, 0, 0];
+            const sphereRadius = 1.0;
+            
+            // Ray-sphere intersection: solve ||rayOrigin + t*rayDir - sphereCenter||^2 = radius^2
+            const oc = this.subtract(rayOrigin, sphereCenter);
+            const a = this.dot(rayDir, rayDir);
+            const b = 2.0 * this.dot(oc, rayDir);
+            const c = this.dot(oc, oc) - sphereRadius * sphereRadius;
+            const discriminant = b * b - 4 * a * c;
+            
+            if (discriminant >= 0) {
+                // Hit the sphere - find the closest intersection point
+                const t = (-b - Math.sqrt(discriminant)) / (2.0 * a);
                 
-                const NdotL = Math.max(0, this.dot(N, L));
-                const NdotH = Math.max(0, this.dot(N, H));
-                
-                document.getElementById('vecN').textContent = this.formatVec(N);
-                document.getElementById('vecL').textContent = this.formatVec(L);
-                document.getElementById('vecV').textContent = this.formatVec(V);
-                document.getElementById('vecH').textContent = this.formatVec(H);
-                document.getElementById('vecNdotL').textContent = NdotL.toFixed(3);
-                document.getElementById('vecNdotH').textContent = NdotH.toFixed(3);
-                
-                tooltip.style.display = 'block';
-                tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
-                tooltip.style.top = (e.clientY - rect.top + 15) + 'px';
-            } else {
-                tooltip.style.display = 'none';
+                if (t > 0) {
+                    // Calculate surface point
+                    const surfacePoint = [
+                        rayOrigin[0] + t * rayDir[0],
+                        rayOrigin[1] + t * rayDir[1],
+                        rayOrigin[2] + t * rayDir[2]
+                    ];
+                    
+                    // For sphere centered at origin, normal = surfacePoint (already normalized by sphere equation)
+                    const N = this.normalize(surfacePoint);
+                    const L = this.normalize(this.subtract(this.params.lightPosition, surfacePoint));
+                    const V = this.normalize(this.subtract(this.cameraPosition, surfacePoint));
+                    const H = this.normalize(this.add(V, L));
+                    
+                    const NdotL = Math.max(0, this.dot(N, L));
+                    const NdotH = Math.max(0, this.dot(N, H));
+                    
+                    document.getElementById('vecN').textContent = this.formatVec(N);
+                    document.getElementById('vecL').textContent = this.formatVec(L);
+                    document.getElementById('vecV').textContent = this.formatVec(V);
+                    document.getElementById('vecH').textContent = this.formatVec(H);
+                    document.getElementById('vecNdotL').textContent = NdotL.toFixed(3);
+                    document.getElementById('vecNdotH').textContent = NdotH.toFixed(3);
+                    
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = (clientX - rect.left + 15) + 'px';
+                    tooltip.style.top = (clientY - rect.top + 15) + 'px';
+                    return true;
+                }
             }
+            
+            tooltip.style.display = 'none';
+            return false;
+        };
+        
+        // Mouse events
+        this.canvas.addEventListener('mousemove', (e) => {
+            showTooltip(e.clientX, e.clientY);
         });
         
         this.canvas.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+        });
+        
+        // Touch events for mobile/tablet
+        this.canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                e.preventDefault();
+                showTooltip(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+        
+        this.canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                e.preventDefault();
+                showTooltip(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+        
+        this.canvas.addEventListener('touchend', () => {
             tooltip.style.display = 'none';
         });
     }
