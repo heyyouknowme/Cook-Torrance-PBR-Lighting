@@ -283,19 +283,22 @@ vec3 computeLighting(vec3 N, vec3 V) {
         result += evaluateBRDF(N, V, L, uLightColor * uLightIntensity * attenuation);
         
     } else {
-        // Area light: rectangular light with better sampling (3x3 grid = 9 samples)
+        // Area light: rectangular light with very dense sampling (8x8 grid = 64 samples)
+        // Every point on the rectangular surface emits light
         vec3 t, b;
         basisFromDir(normalize(-uLightDir), t, b);
         vec2 halfSize = uAreaSize * 0.5;
         
-        // Sample a 3x3 grid across the area light for better coverage
-        for (int ix = 0; ix < 3; ++ix) {
-            for (int iy = 0; iy < 3; ++iy) {
+        // Sample an 8x8 grid for very smooth, continuous lighting from entire surface
+        const int gridSize = 8;
+        for (int ix = 0; ix < gridSize; ++ix) {
+            for (int iy = 0; iy < gridSize; ++iy) {
                 // Calculate normalized position on grid [-1, 1]
-                float u = (float(ix) - 1.0); // -1, 0, 1
-                float v = (float(iy) - 1.0); // -1, 0, 1
+                // Spread samples evenly across the entire rectangle
+                float u = (float(ix) / float(gridSize - 1)) * 2.0 - 1.0; // -1 to +1
+                float v = (float(iy) / float(gridSize - 1)) * 2.0 - 1.0; // -1 to +1
                 
-                // Position on the rectangular light
+                // Position on the rectangular light surface
                 vec3 samplePos = uLightPos + (u * halfSize.x) * t + (v * halfSize.y) * b;
                 vec3 lightVec = samplePos - vWorldPos;
                 float dist = max(0.001, length(lightVec));
@@ -314,8 +317,8 @@ vec3 computeLighting(vec3 N, vec3 V) {
             }
         }
         
-        // Average all 9 samples
-        result /= 9.0;
+        // Average all 64 samples for smooth continuous lighting
+        result /= float(gridSize * gridSize);
     }
 
     // Add small ambient term to prevent completely black surfaces
